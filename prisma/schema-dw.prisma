@@ -1,0 +1,26 @@
+// ===========================================
+// Schema para DataWarehouse (Staging)
+// Conexión de SOLO LECTURA al servidor de datos
+// ===========================================
+//
+// NOTA: Este schema es de REFERENCIA para introspección.
+// Las consultas al DW se hacen con $queryRaw desde prisma-dw.ts
+// usando datasourceUrl override (no requiere generar cliente separado).
+//
+// COMANDOS ÚTILES:
+// - Introspeccionar tablas: npx prisma db pull --schema=prisma/schema-dw.prisma
+// - Ver datos: npx prisma studio --schema=prisma/schema-dw.prisma --port 5556
+// ===========================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DW_DATABASE_URL")
+}
+
+// Los modelos se agregarán automáticamente al ejecutar:
+// npx prisma db pull --schema=prisma/schema-dw.prisma
+

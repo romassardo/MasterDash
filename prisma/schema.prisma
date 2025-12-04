@@ -1,0 +1,161 @@
+// Schema unificado para MasterDash
+// Conexion a SQL Server Express (App + DataWarehouse)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// MODELOS DE AUTH.JS (AUTENTICACION)
+// ===========================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  password      String?   // Hash de contrasena para Credentials
+  image         String?
+  role          String    @default("user") // admin, user
+  
+  // Ubicacion organizacional del usuario
+  sectorId      String?
+  areaId        String?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relaciones (NoAction para evitar ciclos en SQL Server)
+  sector        Sector?   @relation(fields: [sectorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  area          Area?     @relation(fields: [areaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  accounts      Account[]
+  sessions      Session[]
+  dashboardAccess UserDashboardAccess[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ===========================================
+// MODELOS DE ORGANIZACION (SECTORES Y AREAS)
+// ===========================================
+
+// Sector: Division grande de la empresa (ej: Administracion, Operaciones, Comercial)
+model Sector {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  areas       Area[]
+  users       User[]
+
+  @@map("sectors")
+}
+
+// Area: Subdivision dentro de un Sector (ej: Contabilidad, Bancos, Sueldos dentro de Administracion)
+model Area {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  sectorId    String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  sector      Sector      @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  users       User[]
+  dashboards  Dashboard[]
+
+  @@unique([sectorId, name])
+  @@map("areas")
+}
+
+// ===========================================
+// MODELOS DE DASHBOARDS
+// ===========================================
+
+model Dashboard {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String?
+  icon        String?
+  isActive    Boolean  @default(true)
+  
+  // Area a la que pertenece el dashboard
+  areaId      String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  area        Area?    @relation(fields: [areaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userAccess  UserDashboardAccess[]
+
+  @@map("dashboards")
+}
+
+// Acceso especial de usuario a dashboard (para casos excepcionales o scope adicional)
+model UserDashboardAccess {
+  id          String   @id @default(cuid())
+  userId      String
+  dashboardId String
+  accessScope String?  @db.Text // JSON con filtros adicionales
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dashboardId])
+  @@map("user_dashboard_access")
+}

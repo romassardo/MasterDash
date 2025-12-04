@@ -1,36 +1,169 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MasterDash v2.4
 
-## Getting Started
+Plataforma centralizada de dashboards empresariales con Next.js 15, Auth.js, Prisma y ECharts.
 
-First, run the development server:
+## 🚀 Stack Tecnológico
+
+- **Framework**: Next.js 15 (App Router)
+- **Autenticación**: Auth.js v5 (NextAuth) con Credentials Provider
+- **Base de Datos**: SQL Server Express (App + DataWarehouse)
+- **ORM**: Prisma
+- **UI**: shadcn/ui + Tremor + Tailwind CSS 4
+- **Gráficos**: Apache ECharts
+- **Estado**: TanStack Query v5
+
+## 📋 Requisitos Previos
+
+- Node.js 18+
+- SQL Server Express (o SQL Server)
+- npm o pnpm
+
+## 🚀 Inicio Rápido
+
+### 1. Clonar e instalar dependencias
+
+```bash
+cd masterdash
+npm install
+```
+
+### 2. Configurar Variables de Entorno
+
+Crea el archivo `.env` en la raíz del proyecto:
+
+```env
+# BASE DE DATOS (SQL Server)
+DATABASE_URL="sqlserver://localhost:1433;database=MasterDash;user=sa;password=TU_PASSWORD;trustServerCertificate=true"
+
+# AUTH.JS
+AUTH_SECRET="genera-una-clave-secreta-de-32-caracteres"
+```
+
+> 💡 Genera AUTH_SECRET con: `npx auth secret`
+
+### 3. Crear la Base de Datos
+
+```bash
+# Sincronizar schema con la BD
+npm run db:push
+
+# Crear usuarios de prueba
+npm run db:seed
+```
+
+### 4. Ejecutar el Proyecto
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 5. Credenciales de Acceso
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Usuario | Email | Contraseña |
+|---------|-------|------------|
+| Admin | admin@masterdash.com | admin123 |
+| Usuario | usuario@masterdash.com | user123 |
 
-## Learn More
+## 📁 Estructura del Proyecto
 
-To learn more about Next.js, take a look at the following resources:
+```
+masterdash/
+├── prisma/
+│   ├── schema.prisma       # Schema unificado (Auth + App)
+│   └── seed.ts             # Script de seed
+├── src/
+│   ├── app/
+│   │   ├── (dashboard)/    # Rutas protegidas
+│   │   │   ├── layout.tsx  # Layout con auth check
+│   │   │   └── page.tsx    # Dashboard principal
+│   │   ├── admin/          # Panel de administración
+│   │   ├── login/          # Página de login
+│   │   └── api/            # API routes
+│   ├── auth.ts             # Configuración Auth.js
+│   ├── components/
+│   │   ├── ui/             # Componentes shadcn
+│   │   ├── layout/         # Sidebar, Header
+│   │   ├── charts/         # Gráficos ECharts
+│   │   └── providers/      # ThemeProvider, etc.
+│   ├── lib/
+│   │   ├── prisma.ts       # Cliente Prisma singleton
+│   │   ├── safe-query.ts   # Queries con accessScope
+│   │   └── utils.ts        # Utilidades
+│   └── types/
+│       ├── index.ts        # Tipos de la aplicación
+│       └── next-auth.d.ts  # Extensión tipos Auth.js
+└── .env                    # Variables de entorno
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🎨 Design System
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Tema**: Dark mode con glassmorphism
+- **Colores**: Gradientes de azul a púrpura
+- **Componentes**: shadcn/ui + Tremor
+- **Gráficos**: ECharts (Canvas mode)
 
-## Deploy on Vercel
+## 🔒 Seguridad
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Autenticación**: Auth.js con Credentials Provider
+- **Sesiones**: JWT Strategy
+- **Contraseñas**: Hash con bcrypt (12 rounds)
+- **Autorización**: Role-based (admin/user)
+- **Access Scope**: Filtrado granular de datos por usuario
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🛠️ Comandos Útiles
+
+```bash
+npm run dev          # Desarrollo
+npm run build        # Build de producción
+npm run start        # Ejecutar build
+npm run lint         # Verificar código
+npm run db:push      # Sincronizar schema
+npm run db:seed      # Crear datos de prueba
+npm run db:studio    # Abrir Prisma Studio
+```
+
+## 📊 DataWarehouse
+
+Para conectar con tu DataWarehouse, agrega las vistas/tablas al schema de Prisma:
+
+```prisma
+// En prisma/schema.prisma
+model VentasResumen {
+  id           Int      @id
+  fecha        DateTime
+  sucursal     String
+  region       String
+  totalVentas  Decimal  @db.Decimal(18, 2)
+  cantidad     Int
+  
+  @@map("vw_ventas_resumen")
+}
+```
+
+Luego ejecuta:
+
+```bash
+npx prisma generate
+```
+
+## 🐳 Docker
+
+```bash
+docker-compose up -d
+```
+
+## 📝 Estado del Proyecto
+
+- ✅ Proyecto base configurado
+- ✅ Autenticación con Auth.js
+- ✅ Layout con Sidebar y Header
+- ✅ Panel de administración básico
+- ✅ Dashboard de ventas (datos de ejemplo)
+- ⬜ Conectar DataWarehouse real
+- ⬜ Deploy en producción
+
+## 📄 Licencia
+
+MIT
