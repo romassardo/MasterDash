@@ -2,6 +2,15 @@
 
 Plataforma centralizada de dashboards empresariales con Next.js 15, Auth.js, Prisma y ECharts.
 
+## 📚 Documentación Detallada
+
+Para información específica sobre el diseño, despliegue y optimización, consulta los archivos en la carpeta `docs/`:
+
+- **[Plan de Desarrollo (PLAN.md)](docs/PLAN.md)**: Hoja de ruta y estado actual del proyecto.
+- **[Diseño Técnico (TECHNICAL_DESIGN.md)](docs/TECHNICAL_DESIGN.md)**: Arquitectura detallada, modelos de datos y flujos.
+- **[Guía de Despliegue (DEPLOYMENT.md)](docs/DEPLOYMENT.md)**: Instrucciones para entornos de producción con Docker/Linux.
+- **[Optimización SQL (OPTIMIZACION_SQL.md)](docs/OPTIMIZACION_SQL.md)**: Estrategias de indexación y rendimiento para Big Data.
+
 ## 🚀 Stack Tecnológico
 
 - **Framework**: Next.js 15 (App Router)

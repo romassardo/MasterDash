@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { KPICard, BarChart, LineChart } from '@/components/charts'
 import { 
@@ -9,7 +10,10 @@ import {
   Layers,
   Loader2,
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import {
   Table,
   TableBody,
@@ -22,6 +26,12 @@ import { formatDateAR } from '@/lib/date-utils'
 
 interface ConsolidacionesData {
   success: boolean
+  pagination: {
+    page: number
+    pageSize: number
+    totalRows: number
+    totalPages: number
+  }
   kpis: {
     totalConsolidaciones: number
     sucursalesUnicas: number
@@ -40,22 +50,26 @@ interface ConsolidacionesData {
     centroCostos: number
     sucursal: string
   }[]
+  accessScope?: any
   error?: string
 }
 
-async function fetchConsolidaciones(): Promise<ConsolidacionesData> {
-  const res = await fetch('/api/dashboards/consolidaciones')
+async function fetchConsolidaciones(page = 1, pageSize = 20): Promise<ConsolidacionesData> {
+  const res = await fetch(`/api/dashboards/consolidaciones?page=${page}&pageSize=${pageSize}`)
   if (!res.ok) throw new Error('Error al cargar datos')
   return res.json()
 }
 
 export default function ConsolidacionesDashboard() {
+  const [page, setPage] = useState(1)
+  const pageSize = 20
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['dashboard-consolidaciones'],
-    queryFn: fetchConsolidaciones,
-    staleTime: 1000 * 60, // 1 minuto - datos analíticos no cambian tan rápido
-    gcTime: 1000 * 60 * 10, // 10 minutos en cache
-    refetchOnWindowFocus: false, // Evitar refetch al cambiar de pestaña
+    queryKey: ['dashboard-consolidaciones', page],
+    queryFn: () => fetchConsolidaciones(page, pageSize),
+    staleTime: 1000 * 60, // 1 minuto
+    gcTime: 1000 * 60 * 10,
+    refetchOnWindowFocus: false,
   })
 
   if (isLoading) {
@@ -175,7 +189,32 @@ export default function ConsolidacionesDashboard() {
 
         {/* Detalle Table */}
         <div className="glass rounded-xl p-6 lg:col-span-2">
-          <h3 className="text-lg font-semibold mb-4">Últimas Consolidaciones</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Últimas Consolidaciones</h3>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 glass border-white/10"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm text-muted-foreground px-2">
+                Página {page} de {data?.pagination?.totalPages || 1}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 glass border-white/10"
+                onClick={() => setPage(p => p + 1)}
+                disabled={page >= (data?.pagination?.totalPages || 1)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -187,22 +226,30 @@ export default function ConsolidacionesDashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {detalle.map((row, index) => (
-                  <TableRow key={index} className="border-white/5 hover:bg-white/5">
-                    <TableCell className="text-sm">
-                      {formatDateAR(row.fecha)}
-                    </TableCell>
-                    <TableCell className="text-sm font-medium">
-                      {row.nombre}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {row.sucursal}
-                    </TableCell>
-                    <TableCell className="text-sm text-right">
-                      {row.centroCostos}
+                {detalle.length > 0 ? (
+                  detalle.map((row, index) => (
+                    <TableRow key={index} className="border-white/5 hover:bg-white/5">
+                      <TableCell className="text-sm">
+                        {formatDateAR(row.fecha)}
+                      </TableCell>
+                      <TableCell className="text-sm font-medium">
+                        {row.nombre}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {row.sucursal}
+                      </TableCell>
+                      <TableCell className="text-sm text-right">
+                        {row.centroCostos}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center h-24 text-muted-foreground">
+                      No se encontraron consolidaciones en esta página.
                     </TableCell>
                   </TableRow>
-                ))}
+                )}
               </TableBody>
             </Table>
           </div>

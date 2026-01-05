@@ -8,10 +8,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Supabase
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       # DataWarehouse
       - DATABASE_URL_DW=${DATABASE_URL_DW}
     restart: unless-stopped
@@ -35,6 +31,7 @@ services:
 #     depends_on:
 #       - masterdash
 #     restart: unless-stopped
+
 
 
 

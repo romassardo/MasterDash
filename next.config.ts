@@ -6,12 +6,7 @@ const nextConfig: NextConfig = {
   
   // Configuración de imágenes
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '*.supabase.co',
-      },
-    ],
+    remotePatterns: [],
   },
   
   // Optimizaciones experimentales

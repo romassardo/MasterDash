@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/auth'
-import { rawQuery } from '@/lib/safe-query'
+import { safeQuery } from '@/lib/safe-query'
 
 interface ConsolidacionRow {
   FECHA: Date
@@ -23,87 +22,115 @@ interface ConsolidacionPorMes {
 /**
  * GET /api/dashboards/consolidaciones
  * Obtiene datos agregados para el dashboard de consolidaciones
+ * Protegido por SafeQuery (RLS)
+ * Soporta paginación para el detalle
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // Verificar autenticación
-    const session = await auth()
-    
-    if (!session?.user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    const { searchParams } = new URL(request.url)
+    const page = parseInt(searchParams.get('page') || '1')
+    const pageSize = parseInt(searchParams.get('pageSize') || '20')
+    const offset = (page - 1) * pageSize
+
+    // 1. Obtener KPIs (Agregación en SQL)
+    const kpiResult = await safeQuery<{
+      totalConsolidaciones: number
+      sucursalesUnicas: number
+      usuariosUnicos: number
+      centrosCostosUnicos: number
+    }>({
+      dashboardSlug: 'consolidaciones',
+      baseQuery: `
+        SELECT 
+          COUNT(*) as totalConsolidaciones,
+          COUNT(DISTINCT SUCURSAL) as sucursalesUnicas,
+          COUNT(DISTINCT USUARIO) as usuariosUnicos,
+          COUNT(DISTINCT CENTRO_COSTOS) as centrosCostosUnicos
+        FROM cajas_ETL_Reporte_Consolidaciones
+      `,
+    })
+
+    // 2. Por Sucursal (Agregación en SQL)
+    const sucursalResult = await safeQuery<{ name: string; value: number }>({
+      dashboardSlug: 'consolidaciones',
+      baseQuery: `
+        SELECT TOP 10 SUCURSAL as name, COUNT(*) as value
+        FROM cajas_ETL_Reporte_Consolidaciones
+        GROUP BY SUCURSAL
+        ORDER BY value DESC
+      `,
+    })
+
+    // 3. Por Mes (Agregación en SQL)
+    const mesResult = await safeQuery<{ date: string; value: number }>({
+      dashboardSlug: 'consolidaciones',
+      baseQuery: `
+        SELECT 
+          FORMAT(FECHA, 'yyyy-MM') as date,
+          COUNT(*) as value
+        FROM cajas_ETL_Reporte_Consolidaciones
+        GROUP BY FORMAT(FECHA, 'yyyy-MM')
+        ORDER BY date ASC
+      `,
+    })
+
+    // 4. Top Usuarios (Agregación en SQL)
+    const usuariosResult = await safeQuery<{ nombre: string; count: number }>({
+      dashboardSlug: 'consolidaciones',
+      baseQuery: `
+        SELECT TOP 5 NOMBRE_COMPLETO as nombre, COUNT(*) as count
+        FROM cajas_ETL_Reporte_Consolidaciones
+        GROUP BY NOMBRE_COMPLETO
+        ORDER BY count DESC
+      `,
+    })
+
+    // 5. Detalle (Paginado - Server Side)
+    const detalleResult = await safeQuery<ConsolidacionRow>({
+      dashboardSlug: 'consolidaciones',
+      baseQuery: `
+        SELECT FECHA, USUARIO, NOMBRE_COMPLETO, CENTRO_COSTOS, SUCURSAL 
+        FROM cajas_ETL_Reporte_Consolidaciones
+      `,
+      orderBy: `FECHA DESC OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY`
+    })
+
+    if (kpiResult.error || sucursalResult.error || mesResult.error) {
+      return NextResponse.json({ 
+        success: false, 
+        error: kpiResult.error || sucursalResult.error || mesResult.error 
+      }, { status: 403 })
     }
 
-    // Obtener todos los datos
-    const rawData = await rawQuery<ConsolidacionRow>(`
-      SELECT FECHA, USUARIO, NOMBRE_COMPLETO, CENTRO_COSTOS, SUCURSAL 
-      FROM cajas_ETL_Reporte_Consolidaciones
-      ORDER BY FECHA DESC
-    `)
-
-    // KPIs
-    const totalConsolidaciones = rawData.length
-    const sucursalesUnicas = new Set(rawData.map(r => r.SUCURSAL.trim())).size
-    const usuariosUnicos = new Set(rawData.map(r => r.USUARIO)).size
-    const centrosCostosUnicos = new Set(rawData.map(r => r.CENTRO_COSTOS)).size
-
-    // Consolidaciones por sucursal (para bar chart)
-    const porSucursalMap = new Map<string, number>()
-    rawData.forEach(row => {
-      const sucursal = row.SUCURSAL.trim()
-      porSucursalMap.set(sucursal, (porSucursalMap.get(sucursal) || 0) + 1)
-    })
-    const porSucursal: ConsolidacionPorSucursal[] = Array.from(porSucursalMap.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-
-    // Consolidaciones por mes (para line chart)
-    const porMesMap = new Map<string, number>()
-    rawData.forEach(row => {
-      const fecha = new Date(row.FECHA)
-      const mesKey = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`
-      porMesMap.set(mesKey, (porMesMap.get(mesKey) || 0) + 1)
-    })
-    const porMes: ConsolidacionPorMes[] = Array.from(porMesMap.entries())
-      .map(([date, value]) => ({ date, value }))
-      .sort((a, b) => a.date.localeCompare(b.date))
-
-    // Top 5 usuarios con más consolidaciones
-    const porUsuarioMap = new Map<string, { nombre: string; count: number }>()
-    rawData.forEach(row => {
-      const existing = porUsuarioMap.get(row.USUARIO)
-      if (existing) {
-        existing.count++
-      } else {
-        porUsuarioMap.set(row.USUARIO, { nombre: row.NOMBRE_COMPLETO, count: 1 })
-      }
-    })
-    const topUsuarios = Array.from(porUsuarioMap.values())
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5)
-
-    // Detalle (últimas 20 consolidaciones)
-    const detalle = rawData.slice(0, 20).map(row => ({
-      fecha: row.FECHA,
-      usuario: row.USUARIO,
-      nombre: row.NOMBRE_COMPLETO,
-      centroCostos: row.CENTRO_COSTOS,
-      sucursal: row.SUCURSAL.trim(),
-    }))
+    const totalRows = kpiResult.data[0]?.totalConsolidaciones || 0
 
     return NextResponse.json({
       success: true,
-      kpis: {
-        totalConsolidaciones,
-        sucursalesUnicas,
-        usuariosUnicos,
-        centrosCostosUnicos,
+      pagination: {
+        page,
+        pageSize,
+        totalRows,
+        totalPages: Math.ceil(totalRows / pageSize)
+      },
+      kpis: kpiResult.data[0] || {
+        totalConsolidaciones: 0,
+        sucursalesUnicas: 0,
+        usuariosUnicos: 0,
+        centrosCostosUnicos: 0,
       },
       charts: {
-        porSucursal,
-        porMes,
+        porSucursal: sucursalResult.data,
+        porMes: mesResult.data,
       },
-      topUsuarios,
-      detalle,
+      topUsuarios: usuariosResult.data,
+      detalle: detalleResult.data.map(row => ({
+        fecha: row.FECHA,
+        usuario: row.USUARIO,
+        nombre: row.NOMBRE_COMPLETO,
+        centroCostos: row.CENTRO_COSTOS,
+        sucursal: row.SUCURSAL.trim(),
+      })),
+      accessScope: kpiResult.accessScope,
     })
 
   } catch (error) {

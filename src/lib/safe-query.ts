@@ -20,6 +20,8 @@ interface SafeQueryOptions {
   dashboardSlug: string
   baseQuery: string
   params?: Record<string, unknown>
+  orderBy?: string
+  skipRLS?: boolean // Para admins que necesiten ver todo
 }
 
 interface SafeQueryResult<T> {
@@ -35,6 +37,16 @@ export async function getUserAccessScope(
   userId: string,
   dashboardSlug: string
 ): Promise<AccessScope | null> {
+  // Primero verificar si el usuario es admin
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  })
+
+  if (user?.role === 'admin') {
+    return { regions: ['*'], sucursales: ['*'] } // Admin ve todo
+  }
+
   const access = await prisma.userDashboardAccess.findFirst({
     where: {
       userId,
@@ -47,62 +59,80 @@ export async function getUserAccessScope(
     },
   })
 
-  if (!access?.accessScope) {
+  if (!access) {
     return null
+  }
+
+  // Si no hay scope definido pero tiene acceso, por defecto no ve nada por seguridad
+  // a menos que se defina explícitamente.
+  if (!access.accessScope) {
+    return {} 
   }
 
   // accessScope se almacena como JSON string en la BD
   try {
-    return JSON.parse(access.accessScope) as AccessScope
+    return typeof access.accessScope === 'string' 
+      ? JSON.parse(access.accessScope) as AccessScope
+      : access.accessScope as unknown as AccessScope
   } catch {
-    return null
+    return {}
   }
 }
 
 /**
- * Construye la cláusula WHERE basada en el accessScope
- * NOTA: En producción, usar consultas parametrizadas para prevenir SQL injection
+ * Construye la cláusula WHERE basada en el accessScope y parámetros adicionales
  */
-export function buildWhereClause(accessScope: AccessScope): string {
-  const conditions: string[] = []
+export function buildWhereClause(
+  accessScope: AccessScope, 
+  externalParams: Record<string, any> = {},
+  existingConditions: string[] = []
+): { where: string; params: any[] } {
+  const conditions: string[] = [...existingConditions]
+  const params: any[] = []
+  let paramIndex = 0
 
+  // Helper para añadir parámetros numerados para SQL Server ($1, $2... o @p0, @p1...)
+  // Prisma $queryRawUnsafe usa ? o marcadores de posición dependiendo del conector, 
+  // pero para SQL Server suele ser @p1, @p2... o simplemente pasar los argumentos.
+  
   if (accessScope.regions && accessScope.regions.length > 0 && !accessScope.regions.includes('*')) {
-    const regions = accessScope.regions.map(r => `'${r.replace(/'/g, "''")}'`).join(',')
-    conditions.push(`region IN (${regions})`)
+    const regionPlaceholders = accessScope.regions.map(() => {
+      params.push(accessScope.regions![paramIndex++])
+      return `?`
+    })
+    conditions.push(`region IN (${regionPlaceholders.join(',')})`)
   }
 
   if (accessScope.sucursales && accessScope.sucursales.length > 0 && !accessScope.sucursales.includes('*')) {
-    const sucursales = accessScope.sucursales.map(s => `'${s.replace(/'/g, "''")}'`).join(',')
-    conditions.push(`sucursal IN (${sucursales})`)
+    const sucursalPlaceholders = accessScope.sucursales.map(() => {
+      params.push(accessScope.sucursales![paramIndex++])
+      return `?`
+    })
+    conditions.push(`sucursal IN (${sucursalPlaceholders.join(',')})`)
   }
 
   if (accessScope.minAmount !== undefined) {
-    conditions.push(`monto >= ${Number(accessScope.minAmount)}`)
+    conditions.push(`monto >= ?`)
+    params.push(Number(accessScope.minAmount))
   }
 
   if (accessScope.maxAmount !== undefined) {
-    conditions.push(`monto <= ${Number(accessScope.maxAmount)}`)
+    conditions.push(`monto <= ?`)
+    params.push(Number(accessScope.maxAmount))
   }
 
-  if (accessScope.dateFrom) {
-    conditions.push(`fecha >= '${accessScope.dateFrom}'`)
+  // Añadir parámetros externos
+  for (const [key, value] of Object.entries(externalParams)) {
+    conditions.push(`${key} = ?`)
+    params.push(value)
   }
 
-  if (accessScope.dateTo) {
-    conditions.push(`fecha <= '${accessScope.dateTo}'`)
-  }
-
-  return conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+  return { where: whereClause, params }
 }
 
 /**
  * Ejecuta una consulta segura al DataWarehouse
- * 
- * @example
- * const result = await safeQuery<VentasData>({
- *   dashboardSlug: 'ventas',
- *   baseQuery: 'SELECT * FROM vw_ventas_resumen',
- * })
  */
 export async function safeQuery<T>(
   options: SafeQueryOptions
@@ -111,29 +141,32 @@ export async function safeQuery<T>(
     const session = await auth()
 
     if (!session?.user?.id) {
-      return { data: [], error: 'Usuario no autenticado' }
+      return { data: [], error: 'No autenticado' }
     }
 
     // Obtener accessScope del usuario
     const accessScope = await getUserAccessScope(session.user.id, options.dashboardSlug)
 
-    if (!accessScope) {
+    if (!accessScope && !options.skipRLS) {
       return { data: [], error: 'Sin acceso a este dashboard' }
     }
 
     // Construir query con filtros de seguridad
-    const whereClause = buildWhereClause(accessScope)
-    const fullQuery = `${options.baseQuery} ${whereClause}`
+    const { where, params } = buildWhereClause(accessScope || {}, options.params || [])
+    
+    let fullQuery = `${options.baseQuery} ${where}`
+    if (options.orderBy) {
+      fullQuery += ` ORDER BY ${options.orderBy}`
+    }
 
     // Ejecutar query al DataWarehouse (Staging)
-    const result = await prismaDW.$queryRawUnsafe<T[]>(fullQuery)
+    const result = await prismaDW.$queryRawUnsafe<T[]>(fullQuery, ...params)
 
     return {
       data: result,
-      accessScope,
+      accessScope: accessScope || undefined,
     }
   } catch (error) {
-    // Log error solo en desarrollo
     if (process.env.NODE_ENV === 'development') {
       console.error('SafeQuery error:', error)
     }
